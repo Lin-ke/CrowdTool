@@ -74,7 +74,7 @@ class Crowd(data.Dataset):
                     k[int(gt[i][1]), int(gt[i][0])] = 1
             target = k
 
-            RGB = self.RGB_transform(RGB)
+            RGB = self.RGB_transform(RGB) # TODO
             T = self.T_transform(T)
             name = os.path.basename(gt_path).split('.')[0][:-3] # without _GT
 

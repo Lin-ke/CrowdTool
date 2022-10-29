@@ -105,7 +105,7 @@ class Tool():
             game[L] += abs_error
             mse[L] += square_error
         return game,mse
-    
+    # return : 保存图片的地址+resized output
     @classmethod # saveoutput
     def save_output(self,output,image_name = None,color = plt.cm.jet,save_path = "./",interplot = True,shape = None):
         if(interplot):
@@ -113,7 +113,7 @@ class Tool():
             if(output.shape!=shape):
                 ratio = shape[0]/output.shape[0]
                 output = cv2.resize(output,(shape[1],shape[0]),interpolation=cv2.INTER_CUBIC)
-        # plt 打印是顺序相反的
+        # 注意opencv的resize顺序是相反的
         
         plt.imshow(output,cmap=color)
         plt.xticks([])
@@ -126,8 +126,11 @@ class Tool():
         plt.savefig(save_prefix+".jpg")
         
         np.save(save_prefix,output/(ratio*ratio))
+        
         return save_prefix+".jpg",output
 
+    def test_named_image(self,number , color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
+        return
 
     def test_random_image(self,color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
         inputs,target, name = next(iter(self.dataloader))
