@@ -1,6 +1,5 @@
 
 from random import random
-from venv import create
 import numpy as np
 import torch,math,os 
 from matplotlib import pyplot as plt 
@@ -128,9 +127,9 @@ class Tool():
         elif isinstance(model,torch.nn.Module) or isinstance(model, transforms.Compose):
             return model
         else:
-            raise "Unimplement"
+            raise NotImplementedError
     @classmethod # saveoutput
-    def save_output(self,output,image_name = None,color = plt.cm.jet,save_path = "./",interplot = True,shape = None):
+    def save_output(self,output,save_name = None,color = plt.cm.jet,save_path = "./",interplot = True,shape = None):
         if(interplot):
             assert shape is not None, "need a target"
             if(output.shape!=shape):
@@ -142,9 +141,9 @@ class Tool():
         plt.xticks([])
         plt.yticks([])
         plt.axis('off')
-        if image_name is None:
-            image_name = str(random())
-        save_prefix = os.path.join(save_path,image_name)
+        if save_name is None:
+            save_name = str(random())
+        save_prefix = os.path.join(save_path,save_name)
         plt.tight_layout(pad = 0)
         plt.savefig(save_prefix+".jpg")
         
@@ -152,37 +151,63 @@ class Tool():
         
         return save_prefix+".jpg",output
 
-    def test_named_images(self,namelist,gt,color = plt.cm.jet,save_path = "./", interplot = True,modellist = ["RGB","T"], data_dir = None):
+    def test_named_images(self,namelist,gt,modellist,color = plt.cm.jet,save_path = "./", interplot = True, 
+    data_dir = None, blend = False,save_name = "1.jpg", pic_to_blend = 0):
         if self.data_dir is None and data_dir is None:
-            raise "need a data_dir or input"
+            raise ValueError("data_dir is imexplicit")
         data_dir = data_dir if data_dir is not None else self.data_dir
         # get transform 
         # for custom ,you need to put your own model in the modellist
 
 
         input_trans = [self.getTransform(i) for i in modellist]
-        input = []
+        inputs = []
+        
         for i in range(len(input_trans)):
             img = cv2.imread(os.path.join(data_dir,namelist[i]))[..., ::-1].copy()
+            shape = img.shape[:-1]
+            
             img = input_trans[i](img)
-            input.append(img)
+            img = img.to(self.device)
+            img.unsqueeze_(0)
+            inputs.append(img)
         
-        target = Tool.create_gt(input[0].shape[:2],np.load(os.join(data_dir,gt)))
+        output = self.model(inputs).squeeze_()
+        output = output.cpu().detach().numpy()
+        
+        target = Tool.create_gt(shape,np.load(os.path.join(data_dir,gt)))
 
-
-
+        H,W = shape
+        ratio = H/output.shape[0] # 8
+        pic_path,output = Tool.save_output(output,color=color,save_path=save_path,interplot= interplot,shape = (H,W))
+        input_path = os.path.join(data_dir,namelist[pic_to_blend])
+        
+        if(blend):
+            
+        #input_pic = cv2.imread(input_path)
+        
+            #Tool.npimg_blend(cv2.imread(pic_path), input_pic,save_name = "1.jpg", alpha = 0.5)
+            Tool.pilimg_blend(Image.open(pic_path),Image.open(
+                input_path
+            ),save_name,0.5)
+        
+        # target : 480*640
+        return target,output/(ratio*ratio),input_path,pic_path
     @classmethod
-    def create_gt(shape, gt):
+    def create_gt(self,shape, gt):
         k = np.zeros((shape[0], shape[1]))
         for i in range(0, len(gt)):
             if int(gt[i][1]) < shape[0] and int(gt[i][0]) < shape[1]:
                 k[int(gt[i][1]), int(gt[i][0])] = 1
         return k
     @classmethod
-    def easy_changename(model = "Cross"):
-        return
+    def easy_changename(self,name,model = "Cross"):
+        if model == "Cross":
+            return [name+"_RGB.jpg",name+"_T.jpg"],name+"_GT.npy",["RGB","T"]
+        
     def test_random_image(self,color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
         inputs,target, name = next(iter(self.dataloader))
+        
         if type(inputs) == list:
             inputs[0] = inputs[0].to(self.device)
             inputs[1] = inputs[1].to(self.device)
@@ -272,7 +297,10 @@ if(__name__ == "__main__"):
     t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\best_model_drop05_47.pth",1)
     #t.value()
     #Tool.value(t.model,1,t.dataloader,t.device)
-    target,output,input_path,pic_path = t.test_random_image(blend=False)
+    # target,output,input_path,pic_path = t.test_random_image(blend=False)
+    # s = picshower()
+    # s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
+    namelist,gt,mod = Tool.easy_changename("1206")
+    target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
     s = picshower()
     s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
-
