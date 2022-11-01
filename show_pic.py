@@ -2,15 +2,16 @@ import cv2
 import numpy as np
 class picshower():
 
-    def show_pic(self,target,output,img,out_img):
+    def show_pic(self,target,output,imgs):
         self.output = output
         self.gt = target
         self.drawing =False
         self.x1,self.y1,self.x2,self.y2=-1,-1,-1,-1
-        self.pre_img = img.copy()
-        self.pre_out_img = out_img.copy()
-        self.img = img
-        self.out_img = out_img
+        self.pre_imgs = []
+        for img in imgs:
+            self.pre_imgs.append(img.copy())
+
+        self.imgs = imgs
         def cal_value()->str: 
             print(self.x1,self.x2,self.y1,self.y2)
             r1 = self.gt[self.y1:self.y2,self.x1:self.x2].sum()
@@ -20,36 +21,31 @@ class picshower():
 
         def dc(event,x,y,flags,param):
             if event==cv2.EVENT_LBUTTONDOWN:
-
-                self.img = self.pre_img.copy()
-                self.out_img = self.pre_out_img.copy()
+                for i in range(len(self.pre_imgs)):
+                    self.imgs[i] = self.pre_imgs[i].copy()
                 self.drawing=True
                 self.x1,self.y1=x,y
             elif event==cv2.EVENT_MOUSEMOVE and flags==cv2.EVENT_FLAG_LBUTTON:
                 if self.drawing == True:
-                    self.img = self.pre_img.copy()
-                    self.out_img = self.pre_out_img.copy()
-                    cv2.rectangle(self.img,(self.x1,self.y1),(x,y),(0,255,0),2)
-                    cv2.rectangle(self.out_img,(self.x1,self.y1),(x,y),(0,255,0),2)
+                    for i in range(len(self.pre_imgs)):
+                        self.imgs[i] = self.pre_imgs[i].copy()
+                        cv2.rectangle(self.imgs[i],(self.x1,self.y1),(x,y),(0,255,0),2)
 
             elif event==cv2.EVENT_LBUTTONUP:
                 
                 self.x2,self.y2 = x,y
                 # begin to calculate
                 text = cal_value()
-                cv2.putText(self.out_img, text, (40, 50), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 255), 2)
+                cv2.putText(self.imgs[0], text, (40, 50), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 255), 2)
                 print(text)
                 self.drawing=False
-        cv2.namedWindow('img',0)
-        cv2.resizeWindow('img',(img.shape[1],img.shape[0]))
-        cv2.namedWindow('out_img',0)
-        cv2.resizeWindow('out_img',(out_img.shape[1],out_img.shape[0]))
+        for i in range(len(self.pre_imgs)):
+            cv2.namedWindow('img'+str(i),0)
+            cv2.resizeWindow('img'+str(i),(self.imgs[i].shape[1],self.imgs[i].shape[0]))
         while(1):
-            cv2.imshow('img',self.img)
-            
-            cv2.imshow("out_img",self.out_img)
-            cv2.setMouseCallback('img',dc)
-            cv2.setMouseCallback('out_img',dc)
+            for i in range(len(self.pre_imgs)):
+                cv2.imshow('img'+str(i),self.imgs[i])
+                cv2.setMouseCallback('img'+str(i),dc)
             k=cv2.waitKey(10)
             if k==27:
                 break

@@ -13,7 +13,7 @@ from torchvision import transforms
 class Tool():
     
     def __init__(self) :
-        self.device = torch.device("cuda:0") if(torch.cuda.is_available()) else torch.device("cpu")
+        self.device = torch.device("cuda:5") if(torch.cuda.is_available()) else torch.device("cpu")
     def __setattr__(self, __name: str, __value) -> None:
         super().__setattr__(__name,__value)
         if(__name == "device"):
@@ -304,7 +304,7 @@ class Tool():
 if(__name__ == "__main__"):
     t = Tool()
     #t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\999_ckpt.tar",FusionModel,1)
-    t.load("D:\\2022\\datasets\\UCF-Train-Val-Test\\test","C:\\Users\\17205\\1\\999_ckpt.tar",vgg19,1)
+    t.load('/home/home/qinnan/dataset/UCF-Train-Val-Test/test','/home/home/qinnan/counting/Bayesian-Crowd-Counting/model/1019-215043/999_ckpt.tar',vgg19,1)
     #t.value()
     #Tool.value(t.model,1,t.dataloader,t.device)
     # target,output,input_path,pic_path = t.test_random_image(blend=False)
@@ -313,4 +313,4 @@ if(__name__ == "__main__"):
     namelist,gt,mod = Tool.easy_changename("30",model = "UCF")
     target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
     s = picshower()
-    s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
+    s.show_pic(target,output,[Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path)])
