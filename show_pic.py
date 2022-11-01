@@ -41,9 +41,9 @@ class picshower():
                 print(text)
                 self.drawing=False
         cv2.namedWindow('img',0)
-        cv2.resizeWindow('img',640,480)
+        cv2.resizeWindow('img',(img.shape[1],img.shape[0]))
         cv2.namedWindow('out_img',0)
-        cv2.resizeWindow('out_img',640,480)
+        cv2.resizeWindow('out_img',(out_img.shape[1],out_img.shape[0]))
         while(1):
             cv2.imshow('img',self.img)
             

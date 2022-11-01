@@ -4,7 +4,8 @@ import numpy as np
 import torch,math,os 
 from matplotlib import pyplot as plt 
 from datasets.crowd import Crowd
-from models.fusion_attr import fusion_model
+from models.fusion_attr import FusionModel
+from models.vgg import vgg19
 import cv2
 from PIL import Image
 from show_pic import picshower
@@ -24,13 +25,16 @@ class Tool():
         
 
     # 只对counting数据集有效
-    def load(self,data_dir,model_dir,batch_size):
+    def load(self,data_dir,model_dir,create_function,batch_size):
 
         datasets = Crowd(data_dir, method='test')
         self.dataloader = torch.utils.data.DataLoader(datasets, batch_size, shuffle=False,
                                              num_workers=2, pin_memory=True)
-        self.model = fusion_model()
-        self.model.load_state_dict(torch.load(model_dir,map_location = self.device))
+        self.model = create_function()
+        if(model_dir.endswith("tar")):
+            self.model.load_state_dict(torch.load(model_dir,map_location = self.device)['model_state_dict'])
+        elif model_dir.endswith("pth"):
+            self.model.load_state_dict(torch.load(model_dir,map_location = self.device))
         self.model.to(self.device)
         self.model.eval()
         self.data_dir = data_dir
@@ -138,7 +142,8 @@ class Tool():
                 ratio = shape[0]/output.shape[0]
                 output = cv2.resize(output,(shape[1],shape[0]),interpolation=cv2.INTER_CUBIC)
         # 注意opencv的resize顺序是相反的
-        
+        # plt figshape?
+        plt.figure(dpi = 1, figsize=shape) 
         plt.imshow(output,cmap=color)
         plt.xticks([])
         plt.yticks([])
@@ -154,13 +159,13 @@ class Tool():
         return save_prefix+".jpg",output
 
     def test_named_images(self,namelist,gt,modellist,color = plt.cm.jet,save_path = "./", interplot = True, 
-    data_dir = None, blend = False,save_name = "1.jpg", pic_to_blend = 0):
+    data_dir = None, blend = False,save_name = "blend.jpg", pic_to_blend = 0):
         if self.data_dir is None and data_dir is None:
             raise ValueError("data_dir is imexplicit")
         data_dir = data_dir if data_dir is not None else self.data_dir
         # get transform 
         # for custom ,you need to put your own model in the modellist
-
+        assert len(namelist) == len(modellist)
 
         input_trans = [self.getTransform(i) for i in modellist]
         inputs = []
@@ -173,17 +178,18 @@ class Tool():
             img = img.to(self.device)
             img.unsqueeze_(0)
             inputs.append(img)
+        if(len(inputs) == 1):
+            inputs = inputs[0]
         
         output = self.model(inputs).squeeze_()
         output = output.cpu().detach().numpy()
-        
+
         target = Tool.create_gt(shape,np.load(os.path.join(data_dir,gt)))
 
         H,W = shape
         ratio = H/output.shape[0] # 8
-        pic_path,output = Tool.save_output(output,color=color,save_path=save_path,interplot= interplot,shape = (H,W))
+        pic_path,output = Tool.save_output(output,color=color,save_path=save_path,interplot= interplot,shape = (H,W),save_name="saved_output")
         input_path = os.path.join(data_dir,namelist[pic_to_blend])
-        
         if(blend):
             
         #input_pic = cv2.imread(input_path)
@@ -206,7 +212,8 @@ class Tool():
     def easy_changename(self,name,model = "Cross"):
         if model == "Cross":
             return [name+"_RGB.jpg",name+"_T.jpg"],name+"_GT.npy",["RGB","T"]
-        
+        if model == "UCF":
+            return ["img_"+name.zfill(4)+".jpg"],"img_"+name.zfill(4)+".npy",["RGB"]
     def test_random_image(self,color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
         inputs,target, name = next(iter(self.dataloader))
         
@@ -296,13 +303,14 @@ class Tool():
         return img
 if(__name__ == "__main__"):
     t = Tool()
-    t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\best_model_drop05_47.pth",1)
+    #t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\999_ckpt.tar",FusionModel,1)
+    t.load("D:\\2022\\datasets\\UCF-Train-Val-Test\\test","C:\\Users\\17205\\1\\999_ckpt.tar",vgg19,1)
     #t.value()
     #Tool.value(t.model,1,t.dataloader,t.device)
     # target,output,input_path,pic_path = t.test_random_image(blend=False)
     # s = picshower()
     # s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
-    namelist,gt,mod = Tool.easy_changename("1206")
+    namelist,gt,mod = Tool.easy_changename("30",model = "UCF")
     target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
     s = picshower()
     s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
