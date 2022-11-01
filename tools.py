@@ -1,6 +1,6 @@
 
-from audioop import ratecv
 from random import random
+from venv import create
 import numpy as np
 import torch,math,os 
 from matplotlib import pyplot as plt 
@@ -9,6 +9,7 @@ from models.fusion_attr import fusion_model
 import cv2
 from PIL import Image
 from show_pic import picshower
+from torchvision import transforms
 class Tool():
     
     def __init__(self) :
@@ -106,6 +107,28 @@ class Tool():
             mse[L] += square_error
         return game,mse
     # return : 保存图片的地址+resized output
+    @classmethod
+    def getTransform(self, model = "CUSTOM"):
+        if model == "T":
+            return transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+        elif model == "GRAY":
+            return  transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+            ])
+        elif model == "RGB":
+            return  transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+        
+        elif isinstance(model,torch.nn.Module) or isinstance(model, transforms.Compose):
+            return model
+        else:
+            raise "Unimplement"
     @classmethod # saveoutput
     def save_output(self,output,image_name = None,color = plt.cm.jet,save_path = "./",interplot = True,shape = None):
         if(interplot):
@@ -129,9 +152,35 @@ class Tool():
         
         return save_prefix+".jpg",output
 
-    def test_named_image(self,number , color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
-        return
+    def test_named_images(self,namelist,gt,color = plt.cm.jet,save_path = "./", interplot = True,modellist = ["RGB","T"], data_dir = None):
+        if self.data_dir is None and data_dir is None:
+            raise "need a data_dir or input"
+        data_dir = data_dir if data_dir is not None else self.data_dir
+        # get transform 
+        # for custom ,you need to put your own model in the modellist
 
+
+        input_trans = [self.getTransform(i) for i in modellist]
+        input = []
+        for i in range(len(input_trans)):
+            img = cv2.imread(os.path.join(data_dir,namelist[i]))[..., ::-1].copy()
+            img = input_trans[i](img)
+            input.append(img)
+        
+        target = Tool.create_gt(input[0].shape[:2],np.load(os.join(data_dir,gt)))
+
+
+
+    @classmethod
+    def create_gt(shape, gt):
+        k = np.zeros((shape[0], shape[1]))
+        for i in range(0, len(gt)):
+            if int(gt[i][1]) < shape[0] and int(gt[i][0]) < shape[1]:
+                k[int(gt[i][1]), int(gt[i][0])] = 1
+        return k
+    @classmethod
+    def easy_changename(model = "Cross"):
+        return
     def test_random_image(self,color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
         inputs,target, name = next(iter(self.dataloader))
         if type(inputs) == list:
