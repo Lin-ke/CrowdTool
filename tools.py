@@ -110,9 +110,11 @@ class Tool():
     def getTransform(self, model = "CUSTOM"):
         if model == "T":
             return transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-            ])
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.492, 0.168, 0.430],
+                std=[0.317, 0.174, 0.191]),
+        ])
         elif model == "GRAY":
             return  transforms.Compose([
                 transforms.ToTensor(),
