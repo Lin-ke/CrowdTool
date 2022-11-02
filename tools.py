@@ -109,6 +109,19 @@ class Tool():
             game[L] += abs_error
             mse[L] += square_error
         return game,mse
+    @classmethod
+    def gray(self,root,recursive = False):
+        print(root)
+        files= os.listdir(root)
+        for file in files:
+            if not os.path.isdir(os.path.join(root,file)):
+                if file.endswith(".jpg"):
+                    pic = cv2.imread(os.path.join(root,file))
+                    img_gray = cv2.cvtColor(pic,cv2.COLOR_RGB2GRAY)
+                    cv2.imwrite(os.path.join(root,file[:-4]+"_g.jpg"),img_gray)
+            elif recursive:
+                Tool.gray(os.path.join(root,file),recursive=recursive)
+
     # return : 保存图片的地址+resized output
     @classmethod
     def getTransform(self, model = "CUSTOM"):
