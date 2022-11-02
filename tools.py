@@ -13,7 +13,7 @@ from torchvision import transforms
 class Tool():
     
     def __init__(self) :
-        self.device = torch.device("cuda:5") if(torch.cuda.is_available()) else torch.device("cpu")
+        self.device = torch.device("cuda:0") if(torch.cuda.is_available()) else torch.device("cpu")
     def __setattr__(self, __name: str, __value) -> None:
         super().__setattr__(__name,__value)
         if(__name == "device"):
@@ -142,8 +142,8 @@ class Tool():
                 ratio = shape[0]/output.shape[0]
                 output = cv2.resize(output,(shape[1],shape[0]),interpolation=cv2.INTER_CUBIC)
         # 注意opencv的resize顺序是相反的
-        # plt figshape?
-        plt.figure(dpi = 1, figsize=shape) 
+        # plt figsize 也是相反的
+        plt.figure(dpi = 1, figsize=(shape[1],shape[0])) 
         plt.imshow(output,cmap=color)
         plt.xticks([])
         plt.yticks([])
@@ -214,9 +214,10 @@ class Tool():
             return [name+"_RGB.jpg",name+"_T.jpg"],name+"_GT.npy",["RGB","T"]
         if model == "UCF":
             return ["img_"+name.zfill(4)+".jpg"],"img_"+name.zfill(4)+".npy",["RGB"]
+    
     def test_random_image(self,color = plt.cm.jet,save_path = "./",blend = True, interplot = True,T = False):
         inputs,target, name = next(iter(self.dataloader))
-        
+            
         if type(inputs) == list:
             inputs[0] = inputs[0].to(self.device)
             inputs[1] = inputs[1].to(self.device)
@@ -303,13 +304,27 @@ class Tool():
         return img
 if(__name__ == "__main__"):
     t = Tool()
+    
+    ## 使用UCF的一个例子：
+    #t.load('/home/home/qinnan/dataset/UCF-Train-Val-Test/test','/home/home/qinnan/counting/Bayesian-Crowd-Counting/model/1019-215043/999_ckpt.tar',vgg19,1)
+    #namelist,gt,mod = Tool.easy_changename("30",model = "UCF") # 第30张图片
+    #target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
+    #s = picshower()
+    #s.show_pic(target,output,[Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path)])
+    
+    ## 使用多模态的一个例子
     #t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\999_ckpt.tar",FusionModel,1)
-    t.load('/home/home/qinnan/dataset/UCF-Train-Val-Test/test','/home/home/qinnan/counting/Bayesian-Crowd-Counting/model/1019-215043/999_ckpt.tar',vgg19,1)
-    #t.value()
-    #Tool.value(t.model,1,t.dataloader,t.device)
-    # target,output,input_path,pic_path = t.test_random_image(blend=False)
+
+    # namelist,gt,mod = Tool.easy_changename("1192",model = "Cross")
+    #target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
     # s = picshower()
     # s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
+    
+    # 使用自己的dataloader请使用 t.test_random()
+
+    
+    t.load("D:\\2022\\datasets\\UCF-Train-Val-Test\\test","C:\\Users\\17205\\1\\999_ckpt.tar",vgg19,1)
+    
     namelist,gt,mod = Tool.easy_changename("30",model = "UCF")
     target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
     s = picshower()
