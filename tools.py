@@ -61,7 +61,7 @@ class Tool():
             else:
                 assert inputs.size(0) == 1, 'the batch size should equal to 1 in validation mode'
             with torch.set_grad_enabled(False):
-                outputs = model(inputs)
+                outputs = model(inputs)[0]
                 #------------------visual the outpt----------
                 #self.softmax = torch.nn.Softmax(dim=1)
 
@@ -156,7 +156,9 @@ class Tool():
                 output = cv2.resize(output,(shape[1],shape[0]),interpolation=cv2.INTER_CUBIC)
         # 注意opencv的resize顺序是相反的
         # plt figsize 也是相反的
-        plt.figure(dpi = 1, figsize=(shape[1],shape[0])) 
+        else:
+            ratio = 1
+        plt.figure(dpi = 1, figsize=(output.shape[1],output.shape[0]))
         plt.imshow(output,cmap=color)
         plt.xticks([])
         plt.yticks([])
@@ -194,7 +196,7 @@ class Tool():
         if(len(inputs) == 1):
             inputs = inputs[0]
         
-        output = self.model(inputs).squeeze_()
+        output = self.model(inputs)[0].squeeze_()
         output = output.cpu().detach().numpy()
 
         target = Tool.create_gt(shape,np.load(os.path.join(data_dir,gt)))
@@ -238,7 +240,7 @@ class Tool():
         else:
             inputs = inputs.to(self.device)
 
-        output = self.model(inputs).squeeze_()
+        output = self.model(inputs)[0].squeeze_()
         output = output.cpu().detach().numpy()
         # output [60,80]
         
@@ -268,6 +270,8 @@ class Tool():
     
 
         # TODO :增加一个60*80的
+    def getgt(self,name):
+        return np.load(os.path.join(self.data_dir,name))
     @classmethod
     def fig2ndarray(self,fig)->np.ndarray:
         fig.canvas.draw()
@@ -286,21 +290,27 @@ class Tool():
     def ndarray2pilimg(self,fig)->Image.Image:
         return Image.fromarray((fig * 255).astype(np.uint8)).convert('RGB')
     @classmethod 
-    def npimg_blend(self, img1, img2, save_name, alpha = 0.5):
+    def npimg_blend(self, img1, img2, save_name = "output.jpg", alpha = 0.5):
         img1 = np.asarray(img1,np.float32)
         img2 = np.asarray(img2,np.float32)
         if(img1.shape != img2.shape):
             img1 = cv2.resize(img1,(img2.shape[1],img2.shape[0]),interpolation=cv2.INTER_CUBIC)
+        if save_name == "output.jpg":
+            save_name = "output" + str(int(1/random())) + ".jpg"
         res = cv2.addWeighted(img1,alpha,img2,1-alpha,0)
-        cv2.imshow("blend",res)
-        cv2.waitKey(0)
         cv2.imwrite(save_name,res)
     @classmethod     
     def pilimg_blend(self, img1:Image.Image, img2:Image.Image, save_name, alpha = 0.5):
         res =Image.blend(img1,img2,alpha)
         res.save(save_name)
     
-
+    @classmethod
+    def save_img(self, img1,save_path = "./", save_name = None):
+        if save_name is None:
+            save_name = str(random()) +".jpg"
+        save_prefix = os.path.join(save_path,save_name)
+        cv2.imwrite(save_prefix, img1)
+        
     @classmethod
     def eval_relative(self,output:torch.Tensor, target:torch.Tensor):
         output_num = output.cpu().data.sum()
@@ -308,37 +318,59 @@ class Tool():
         relative_error = abs(output_num-target_num)/target_num
         return relative_error
     @classmethod
-    def add_anotation(self, gt, img):
+    def add_anotation(self, gt, img, radius = 2, thickness=2,color = (255,0,0)):
         t = np.nonzero(gt)
         if(type(t) == tuple):
             for i in range(len(t[0])):
-                cv2.circle(img,(t[1][i],t[0][i]),1,(0,0,255),4)
+                cv2.circle(img,(t[1][i],t[0][i]),radius,color,thickness)
         else : return img # TODO
         return img
+    @classmethod
+    def pesudo_gaussian_fig(self, sigma,g_range,figshape , gt ,device = None,kernel = None,name = None):
+    # read ...
+        import numpy as np
+        import torch
+        from gaussian import gaussian_kernel
+        if device is None: 
+            device = torch.device("cpu")
+        # picture shape == 640x480
+        if kernel is None:
+            kernel = gaussian_kernel(sigma,g_range,device = device)
+        
+        radius = int((g_range-1)/2)
+        figshape =(figshape[0]+2*radius+1,figshape[1]+2*radius+1)
+
+        pic = torch.zeros(figshape,device = device)
+        gt = np.around(gt).astype(int)
+        gt = gt+radius
+        
+
+        for (i,j) in gt:
+
+            try:
+                pic[i-radius:i+radius+1,j-radius:j+radius+1] = pic[i-radius:i+radius+1,j-radius:j+radius+1]+kernel
+                
+            except Exception as e :
+                print(i,j,name)
+
+
+        return pic
 if(__name__ == "__main__"):
     t = Tool()
-    
-    ## 使用UCF的一个例子：
-    #t.load('/home/home/qinnan/dataset/UCF-Train-Val-Test/test','/home/home/qinnan/counting/Bayesian-Crowd-Counting/model/1019-215043/999_ckpt.tar',vgg19,1)
-    #namelist,gt,mod = Tool.easy_changename("30",model = "UCF") # 第30张图片
-    #target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
-    #s = picshower()
-    #s.show_pic(target,output,[Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path)])
-    
-    ## 使用多模态的一个例子
-    #t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\999_ckpt.tar",FusionModel,1)
 
-    # namelist,gt,mod = Tool.easy_changename("1192",model = "Cross")
-    #target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
-    # s = picshower()
-    # s.show_pic(target,output,Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path))
-    
-    # 使用自己的dataloader请使用 t.test_random()
-
-    
-    t.load("D:\\2022\\datasets\\UCF-Train-Val-Test\\test","C:\\Users\\17205\\1\\999_ckpt.tar",vgg19,1)
-    
-    namelist,gt,mod = Tool.easy_changename("30",model = "UCF")
-    target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
+    t.load("C:\\Users\\17205\\1\\RGBT_process\\test","C:\\Users\\17205\\1\\best_model_drop05_43.pth",FusionModel,1)
     s = picshower()
-    s.show_pic(target,output,[Tool.add_anotation(target,img=cv2.imread(input_path)),cv2.imread(pic_path)])
+    while(True):
+        i = input()
+        namelist,gt,mod = Tool.easy_changename(i,model = "Cross")
+        target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
+        from gaussian import create_dmap
+        pic = create_dmap((480,640),t.getgt(i+"_GT.npy"))
+        gt_path, _ = Tool.save_output(pic,interplot=False)
+        # pic_path is the path of output
+        Tool.npimg_blend(cv2.imread(pic_path),cv2.imread(input_path)[..., ::-1].copy())
+        s.show_pic(target,output,[cv2.imread(input_path)[..., ::-1].copy(),Tool.add_anotation(target,img=cv2.imread(input_path[:-7]+"T.jpg")[..., ::-1].copy()),cv2.imread(pic_path),cv2.imread(gt_path)],save = i)
+        target,output,input_path,pic_path = t.test_named_images(namelist,gt,mod)
+        
+
+

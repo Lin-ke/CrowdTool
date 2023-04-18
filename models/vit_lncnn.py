@@ -81,6 +81,9 @@ class MultiHeadAttention(nn.Module):
         
         self.qkv = nn.Linear(in_features=dim, out_features=dim*3, bias=qkv_bias)
         self.qkv1 = nn.Linear(in_features=dim, out_features=dim*3, bias=qkv_bias)
+
+        self.qkv_prompt = nn.Linear(in_features=dim, out_features=dim*3, bias=qkv_bias)
+        self.qkv1_prompt  = nn.Linear(in_features=dim, out_features=dim*3, bias=qkv_bias)
         
         self.conv2d_RGB = nn.Sequential(
                      nn.Conv2d(in_channels=dim, out_channels=dim, kernel_size=(3,3), stride=(1, 1), padding=(1, 1), bias=False),
@@ -110,11 +113,14 @@ class MultiHeadAttention(nn.Module):
         self.atten_drop1 = nn.Dropout(atten_drop_ratio)
         self.atten_drop2 = nn.Dropout(atten_drop_ratio)
         
+        #self.RGB_drop = nn.Dropout(0.5)
+        #self.T_drop = nn.Dropout(0.5)
+        
         self.layer_norm1 = nn.LayerNorm(dim, eps=1e-6)
         self.layer_norm2 = nn.LayerNorm(dim, eps=1e-6)
         
-        #self.layer_norm3 = nn.LayerNorm(dim, eps=1e-6)
-        #self.layer_norm4 = nn.LayerNorm(dim, eps=1e-6)
+        # self.layer_norm3_prompt = nn.LayerNorm(dim, eps=1e-6)
+        # self.layer_norm4_prompt = nn.LayerNorm(dim, eps=1e-6)
         
         
         self.proj1 = nn.Linear(in_features=dim, out_features=dim)
@@ -122,24 +128,73 @@ class MultiHeadAttention(nn.Module):
         
         self.proj_drop1 = nn.Dropout(proj_drop_ratio)
         self.proj_drop2 = nn.Dropout(proj_drop_ratio)
+        
+        self.drop1 = nn.Dropout(0.5)
+        self.drop2 = nn.Dropout(0.5)
         #self.x_RGB_T_drop = nn.Dropout(0.5)
+
+
     
     
-    def forward(self, inputs_R_ori,inputs_T_ori,hw):
+    def forward(self, inputs_R_ori,inputs_T_ori,hw,prompt):
     
-        B, N, C = inputs_R_ori.shape
+        
         HW = hw
         
         #---------------------------conv_self_attention----------
         #print ('Cross-----------------11111111111',inputs_R.shape)
         
         #---------------test 
+        # inputs_R = self.layer_norm1(inputs_R_ori)
+        # inputs_T = self.layer_norm2(inputs_T_ori)
+        
+        if prompt:
+            # inputs_R_cnn = inputs_R[:,5:,:].permute(0,2,1).reshape(B,C,HW[0],HW[1])
+            # inputs_T_cnn = inputs_T[:,5:,:].permute(0,2,1).reshape(B,C,HW[0],HW[1])
+            
+            # inputs_R_cnn_residual = inputs_R_ori[:,5:,:].permute(0,2,1).reshape(B,C,HW[0],HW[1])
+            # inputs_T_cnn_residual = inputs_T_ori[:,5:,:].permute(0,2,1).reshape(B,C,HW[0],HW[1]) 
+            B, N, C = inputs_R_ori.shape
+            inputs_R_ori = self.qkv(inputs_R_ori)
+            inputs_T_ori = self.qkv1(inputs_T_ori)
+            
+            inputs_R_ori = inputs_R_ori.reshape(B, N, 3, self.num_heads, C//self.num_heads)
+            inputs_T_ori = inputs_T_ori.reshape(B, N, 3, self.num_heads, C//self.num_heads)
+
+            inputs_R_ori = inputs_R_ori.permute(2,0,3,1,4)
+            inputs_T_ori = inputs_T_ori.permute(2,0,3,1,4)
+
+            
+            q_p = inputs_R_ori[0][:,:,5:,:]      #RGB
+            k_p, v_p = inputs_R_ori[1], inputs_R_ori[2]    # T           
+            R_atten_p = (q_p  @ k_p .transpose(-2,-1)) * self.scale       
+            R_atten_p = R_atten_p.softmax(dim=-1)     
+            R_atten_p = self.atten_drop1(R_atten_p)
+            R_x_p = R_atten_p @ v_p       
+            inputs_R_ori = R_x_p.transpose(1,2)      
+            inputs_R_ori = inputs_R_ori.reshape(B,N-5,C)
+                            
+            #inputs_R_ori = self.proj1(inputs_R_ori)     
+            inputs_R_ori = self.proj_drop1(inputs_R_ori) 
+            #---------------------------------------------------------------
+            q2_p = inputs_T_ori[0][:,:,5:,:]    # T
+            k2_p, v2_p = inputs_T_ori[1], inputs_T_ori[2]  #RGB          
+            T_atten_p = (q2_p @ k2_p.transpose(-2,-1)) * self.scale        
+            T_atten_p = T_atten_p.softmax(dim=-1)       
+            T_atten_p = self.atten_drop2(T_atten_p)  
+            T_x_p = T_atten_p @ v2_p       
+            inputs_T_ori = T_x_p.transpose(1,2)     
+            inputs_T_ori = inputs_T_ori.reshape(B,N-5,C)      
+            
+            #inputs_T_ori = self.proj2(inputs_T_ori)       
+            inputs_T_ori = self.proj_drop2(inputs_T_ori) 
+
+        B, N, C = inputs_R_ori.shape
         inputs_R = self.layer_norm1(inputs_R_ori)
         inputs_T = self.layer_norm2(inputs_T_ori)
-        
         inputs_R_cnn = inputs_R.permute(0,2,1).reshape(B,C,HW[0],HW[1])
         inputs_T_cnn = inputs_T.permute(0,2,1).reshape(B,C,HW[0],HW[1]) 
-        
+    
         #------------------
         
         inputs_R_cnn_residual = inputs_R_ori.permute(0,2,1).reshape(B,C,HW[0],HW[1])
@@ -150,10 +205,14 @@ class MultiHeadAttention(nn.Module):
         x_T = self.conv2d_T(inputs_T_cnn) 
         #print ('Cross-----------------3333333333',x_T.shape)
         
-        x_RGB_T = torch.sigmoid(x_T) * x_RGB + x_RGB   #x_RGB_T = torch.sigmoid(x_T) * x_RGB + inputs_R_cnn_residual     #x_RGB1_T = F.sigmoid(x_T) * x_T + x_RGB
+        x_RGB_T = torch.sigmoid(x_T) * x_RGB + inputs_R_cnn_residual     #x_RGB1_T = F.sigmoid(x_T) * x_T + x_RGB
                
-        x_T_RGB = torch.sigmoid(x_RGB) * x_T + x_T  #x_T_RGB = torch.sigmoid(x_RGB) * x_T + inputs_T_cnn_residual
-
+        x_T_RGB = torch.sigmoid(x_RGB) * x_T + inputs_T_cnn_residual 
+        #----------drop-------------------
+        #x_RGB_T = self.RGB_drop(x_RGB_T)
+        #x_T_RGB = self.T_drop(x_T_RGB)
+        #-----------------------------
+ 
         #---------------------------self_attention-------https://blog.csdn.net/dgvv4/article/details/125184340-------- 
         #---------------------------https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/Models.py
         #---------------------------https://github.com/airsplay/lxmert/blob/master/src/lxrt/modeling.py
@@ -178,6 +237,7 @@ class MultiHeadAttention(nn.Module):
         qkv1 = qkv1.permute(2,0,3,1,4)
         
         #----------------------RGB---V-------------------------
+        
         q = qkv[0]      #RGB
         k, v = qkv1[1], qkv1[2]    # T           
         R_atten = (q @ k.transpose(-2,-1)) * self.scale       
@@ -191,14 +251,15 @@ class MultiHeadAttention(nn.Module):
         R_x = self.proj_drop1(R_x) 
         #R_x = self.layer_norm3(R_x + inputs_R_ori)
         R_x = R_x + inputs_R_ori 
-          
+
+
         R_x = R_x.reshape(B,C,HW[0],HW[1])      
         R_x = torch.cat((R_x,x_RGB_T),dim=1)
         R_x = self.conv1d(R_x)
         
-        #R_x = R_x.reshape(B,C,HW[0],HW[1]).permute(0,2,1)
-        #R_x = R_x + inputs_R_ori
-        #R_x = R_x.permute(0,2,1).reshape(B,C,HW[0],HW[1])
+        R_x = self.drop1(R_x) #xinjia
+        
+
         #------------------------TTTT-----------------------      
         q2 = qkv1[0]   # T
         k2, v2 = qkv[1], qkv[2]  #RGB          
@@ -212,10 +273,15 @@ class MultiHeadAttention(nn.Module):
         T_x = self.proj2(T_x)       
         T_x = self.proj_drop2(T_x)  
         #T_x = self.layer_norm4(T_x + inputs_T_ori)  
-        T_x = T_x + inputs_T_ori                   
-        T_x = T_x.reshape(B,C,HW[0],HW[1])
+        T_x = T_x + inputs_T_ori  
+
+
+        T_x = T_x.reshape(B,C,HW[0],HW[1]) 
+
         T_x = torch.cat((T_x,x_T_RGB),dim=1)
         T_x = self.conv1d2(T_x)
+        
+        T_x = self.drop2(T_x)  #xinjia
         
         
         #T_x = T_x.reshape(B,C,HW[0],HW[1]).permute(0,2,1)
@@ -230,11 +296,19 @@ class Encoderlayer(nn.Module):
         # The cross-attention Layer
         
         
-        
+        self.dim =dim
         self.patchembedRgb = patchembed(img_size = vit_patch_size[0], patch_size=vit_patch_size[1], in_c=dim, embed_dim=768)
         self.patchembedT = patchembed(img_size = vit_patch_size[0], patch_size=vit_patch_size[1], in_c=dim, embed_dim=768)
+
+        #---------------------------------
+
+
+        #-----------------------------------  
+
         
         self.cross_att = MultiHeadAttention(dim = 768, num_heads=4)
+        self.drop1 = nn.Dropout(0.5)
+        self.drop2 = nn.Dropout(0.5)
         
         self.FFN_RGB = MLP(in_features = 768, out_features=dim)
         self.FFN_T = MLP(in_features = 768, out_features=dim)
@@ -248,6 +322,11 @@ class Encoderlayer(nn.Module):
         self.flag = False
         if vit_patch_size[1] > 1:
             self.flag = True
+            self.prompt_rgb = nn.Parameter(torch.randn(5, 768))
+            nn.init.uniform_(self.prompt_rgb,-1, 1)
+            
+            self.prompt_T = nn.Parameter(torch.randn(5, 768))
+            nn.init.uniform_(self.prompt_T,-1, 1)
         
     '''
     def cross_att(self, x_RGB, x_T):
@@ -260,12 +339,60 @@ class Encoderlayer(nn.Module):
 
     def forward(self, x_RGB, x_T):
         
+        
+        if type(x_RGB) == list:    
+            x_RGB_prompt = x_RGB[1]
+            x_RGB = x_RGB[0]
+
+            x_T_prompt = x_T[1]
+            x_T = x_T[0]
+            #print ('555555555555555555555555555',x_RGB_prompt.shape,x_RGB.shape,self.dim)
+            x_RGB_prompt,hw = self.patchembedRgb(x_RGB_prompt)
+            #print ('6666666666666666666666666',x_RGB_prompt.shape)
+
+            x_T_prompt,hw = self.patchembedT(x_T_prompt)
+        else:
+            x_RGB = x_RGB
+            x_T = x_T
+
+
         _,_,H,W = x_RGB.shape
+
         x_RGB,hw = self.patchembedRgb(x_RGB)
         
         x_T,hw = self.patchembedT(x_T)
+
+
+
+        #---------------------------------------------------
+        if self.flag:  
+            batched_prompt_rgb = self.prompt_rgb.unsqueeze(0).expand(x_RGB.shape[0], -1, -1)
+            
+            batched_prompt_t = self.prompt_T.unsqueeze(0).expand(x_RGB.shape[0], -1, -1)
+            
+            x_RGB_prompt = torch.cat([batched_prompt_rgb, x_RGB], dim=1)
+            x_T_prompt = torch.cat([batched_prompt_t, x_T], dim=1)
+
+            x_RGB_prompt, x_T_prompt = self.cross_att(x_RGB_prompt, x_T_prompt,hw,prompt = True)
+        else:
+            x_RGB_prompt, x_T_prompt = self.cross_att(x_RGB_prompt, x_T_prompt,hw,prompt = False)
+
+        x_RGB_prompt = self.FFN_RGB(x_RGB_prompt)
+        x_T_prompt = self.FFN_T(x_T_prompt)
+
+        B,N,C = x_T_prompt.shape
+
+        x_RGB_prompt = x_RGB_prompt.permute(0,2,1).reshape(B,C,hw[0],hw[1])
+        x_T_prompt = x_T_prompt.permute(0,2,1).reshape(B,C,hw[0],hw[1])
         
-        x_RGB, x_T = self.cross_att(x_RGB, x_T,hw)
+        x_RGB_prompt = self.conv1d1(x_RGB_prompt) 
+        x_T_prompt = self.conv1d2(x_T_prompt)
+        if (self.flag):
+            x_RGB_prompt = F.interpolate(x_RGB_prompt, size=(H,W))
+            x_T_prompt = F.interpolate(x_T_prompt, size=(H,W))
+        #---------------------------------------------------
+        
+        x_RGB, x_T = self.cross_att(x_RGB, x_T,hw,prompt = False)
         
         x_RGB = self.FFN_RGB(x_RGB)
         x_T = self.FFN_T(x_T)
@@ -277,14 +404,17 @@ class Encoderlayer(nn.Module):
         
         x_RGB = self.conv1d1(x_RGB) 
         x_T = self.conv1d2(x_T)
+        
+        x_RGB = self.drop1(x_RGB) #xinjia
+        x_T = self.drop2(x_T) #xinjia
         if (self.flag):
             x_RGB = F.interpolate(x_RGB, size=(H,W))
-            x_T = F.interpolate(x_T, size=(H,W))
+            x_T = F.interpolate(x_T, size=(H,W)) 
         #print ('11111111111111111111111111111',x_RGB.shape)
         
         
 
-        return x_RGB, x_T
+        return x_RGB, x_T,x_RGB_prompt, x_T_prompt
 
 class Encoder(nn.Module):
     def __init__(self, dim=256, num_heads=4,num_x_layers = 1,vit_patch_size=[32,2]):
@@ -309,6 +439,6 @@ class Encoder(nn.Module):
         x_T_att = x_T
         # Run cross-modality layers
         for layer_module in self.x_layers:
-            x_RGB_att, x_T_att = layer_module(x_RGB_att, x_T_att)
+            x_RGB_att, x_T_att,x_RGB_prompt, x_T_prompt = layer_module(x_RGB_att, x_T_att)
 
-        return x_RGB_att, x_T_att
+        return x_RGB_att, x_T_att,x_RGB_prompt, x_T_prompt

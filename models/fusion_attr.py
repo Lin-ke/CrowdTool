@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 from torch.nn import functional as F
+
 from models.vit_lncnn import Encoder
 
 class FusionModel(nn.Module):
@@ -17,9 +18,24 @@ class FusionModel(nn.Module):
         self.block4 = Block([c4, c4, c4, c4, 'M'], in_channels=c3,cross_channels = c4,vit_img_size_ = [16,1])
         self.block5 = Block([c4, c4, c4, c4], in_channels=c4,cross_channels = c4,vit_img_size_ = [8,1])
         
+        self.fuse_weight_1 = torch.nn.Parameter(torch.FloatTensor(1), requires_grad=True)
+        self.fuse_weight_2 = torch.nn.Parameter(torch.FloatTensor(1), requires_grad=True)
+        self.fuse_weight_1.data.fill_(1.0)
+        self.fuse_weight_2.data.fill_(1.0)
+        self.conv2d_x = nn.Sequential(        
+                     nn.Conv2d(in_channels=512, out_channels=512, kernel_size=(3,3), stride=(1, 1), padding=(1, 1), bias=False),
+                     nn.ReLU(True),
+                     nn.Dropout(0.5),
+                     nn.Conv2d(in_channels=512, out_channels=512, kernel_size=(3,3), stride=(1, 1), padding=(1, 1), bias=False),
+                     nn.ReLU(True),
+                     nn.Dropout(0.5)       
+                   )
+        
         self.conv1d = nn.Sequential(
                      nn.Conv2d(in_channels=c4*2, out_channels=c4, kernel_size=(1,1), stride=(1, 1), bias=False)
                      )
+
+        self.drop = nn.Dropout(0.5)  #self.drop = nn.Dropout(0.5)
 
         self.reg_layer = nn.Sequential(
             nn.Conv2d(c4, c3, kernel_size=3, padding=1),
@@ -34,25 +50,45 @@ class FusionModel(nn.Module):
         RGB = RGBT[0]
         T = RGBT[1]
         #print ('input0-------------0000',RGB.shape,T.shape)  #[1, 3, 256, 256]
-
+        #with torch.no_grad():
         RGB, T = self.block1(RGB, T)
         #print ('Block1------------11111',RGB.shape)         #[1, 64, 128, 128]
         RGB, T = self.block2(RGB, T)
         #print ('Block2------------22222',RGB.shape)         #[1, 128, 64, 64]
-        RGB, T = self.block3(RGB, T)
+        RGB, T,x_RGB_prompt1,x_T_prompt1 = self.block3(RGB, T)
+        x_RGB_1,x_T_1 = RGB, T
         #print ('Block3------------33333',RGB.shape)         #[1, 256, 32, 32]
-        RGB, T = self.block4(RGB, T)
+        RGB, T,x_RGB_prompt2,x_T_prompt2 = self.block4([RGB,x_RGB_prompt1], [T,x_T_prompt1])
+        x_RGB_2,x_T_2 = RGB, T
         #print ('Block4------------44444',RGB.shape)         #[1, 512, 16, 16]
-        RGB, T = self.block5(RGB, T)
+        RGB, T,x_RGB_prompt3,x_T_prompt3 = self.block5([RGB,x_RGB_prompt2], [T,x_T_prompt2])
+        x_RGB_3,x_T_3 = RGB, T
         #print ('Block5------------55555',RGB.shape)         #[1, 512, 16, 16]
         
-        x = torch.cat((RGB,T),dim=1)
-        #print ('Block6------------66666',x.shape)
-        x = self.conv1d(x)
+        # RGB_tp = torch.cat((x_RGB_3,x_T_prompt3),dim=1)
+        # T_rp = torch.cat((x_T_3,x_RGB_prompt3),dim=1)
+        # #print ('Block6------------66666',x.shape)
+        # RGB = self.conv_rgb(RGB_tp)
+        # T = self.conv_t(T_rp)
+        #----------------
+        x = self.fuse_weight_1 * RGB + self.fuse_weight_2 * T
+        x = self.drop(x)
 
+        #----------------
+        #-----------------------------------
+        prompt1 = (x_RGB_1,x_T_1,x_RGB_prompt1,x_T_prompt1)
+        prompt2 = (x_RGB_2,x_T_2,x_RGB_prompt2,x_T_prompt2)
+        prompt3 = (x_RGB_3,x_T_3,x_RGB_prompt3,x_T_prompt3) 
+        
+        #----------------------------------
+    
+        #-------------
+        #print ('111111111111111',x.shape)
+        #x = self.conv2d_x(x)
+        #----------------
         x = F.interpolate(x, scale_factor=2)
         x = self.reg_layer(x)
-        return torch.abs(x)
+        return torch.abs(x),prompt1,prompt2,prompt3
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -80,30 +116,70 @@ class Block(nn.Module):
         self.rgb_conv = make_layers(cfg, in_channels=in_channels)
         self.t_conv = make_layers(cfg, in_channels=in_channels)
         
+        self.drop1 = nn.Dropout(0.5)
+        self.drop2 = nn.Dropout(0.5)
+
+        self.cross_channels = cross_channels
         
-        self.Flag = False
+        self.Flag = True
         
         if len(cfg) > 3:
             self.Encoder = Encoder(dim=cross_channels,num_heads=4,num_x_layers = 1,vit_patch_size=vit_img_size_)
-            self.Flag = True
+            self.Flag = False
        
 
     def forward(self, RGB, T):
-        RGB = self.rgb_conv(RGB)
-        T = self.t_conv(T)
-        
         if (self.Flag):
-        
-            RGB_att,T_att = self.Encoder(RGB,T)
-            RGB = RGB + RGB_att
-            T = T + T_att
             
+            RGB = self.rgb_conv(RGB)
+            T = self.t_conv(T)
             
-            #RGB,T = self.Encoder(RGB,T)
+            return RGB, T
         
+        else:
+            if type(RGB) != list:
+                RGB = self.rgb_conv(RGB)
+                T = self.t_conv(T)
+
+                RGB_att,T_att,x_RGB_prompt,x_T_prompt = self.Encoder(RGB,T)
+                #---------------------
+                RGB_att = self.drop1(RGB_att)
+                T_att = self.drop2(T_att)
+                #----------------------
+                RGB = RGB + RGB_att
+                T = T + T_att
+                
+                return RGB, T, x_RGB_prompt,x_T_prompt
+            else:
+                
+                RGB_,x_RGB_prompt = RGB[0],RGB[1]
+                T_,x_T_prompt = T[0],T[1]
+
+                x_RGB_prompt_v = self.rgb_conv(x_RGB_prompt)
+                x_T_prompt_v = self.t_conv(x_T_prompt)
+
+                RGB_ = self.rgb_conv(RGB_)
+                T_ = self.t_conv(T_)
+
+                RGB_att,T_att,x_RGB_prompt,x_T_prompt = self.Encoder([RGB_,x_RGB_prompt_v],[T_,x_T_prompt_v])
+                
+                #---------------------
+                RGB_att = self.drop1(RGB_att)
+                T_att = self.drop2(T_att)
+
+                x_RGB_prompt = self.drop1(x_RGB_prompt)
+                x_T_prompt = self.drop2(x_T_prompt)
+                #----------------------
+                RGB = RGB_ + RGB_att
+                T = T_+ T_att
+
+                x_RGB_prompt = x_RGB_prompt + x_RGB_prompt_v
+                x_T_prompt = x_T_prompt + x_T_prompt_v
+                return RGB, T, x_RGB_prompt,x_T_prompt
+        #---------drop
+
         
-        
-        return RGB, T
+
 
 
 def fusion_model():
